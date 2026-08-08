@@ -17,6 +17,12 @@ This application should work in every Windows operating system starting from Win
 
 History
 ---------
+v1.1.1 (2026-08-08) — Packaging fix (VaultedVentures fork)
+  * Release zip now ships a ClipReader.exe.config that pins the .NET Framework 4.x
+    runtime (supportedRuntime v4.0). The v1.1 zip's config was empty, so Windows
+    selected CLR 2.0 which cannot bind System.Drawing 4.0 and the app crashed at
+    launch (CLR20r3 FileNotFoundException). Same exe/dll as v1.1, config only.
+
 v1.1 (2026-08-08) — Long text support (VaultedVentures fork)
   * Removed the "stops after a few hundred characters" limitation.
     - SAPI's Speak() is told explicitly that the text is NOT XML (SVSFIsNotXML),
