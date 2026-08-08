@@ -18,6 +18,11 @@ namespace ClipReader
         private int speed = 0;
         private String clipboardText = "";
 
+        // SAPI's ISpVoice::Speak is unreliable with very long strings and will
+        // silently stop part-way through. We split the text into small chunks
+        // (well under any reported engine limit) and queue them one after another.
+        private const int MAX_CHUNK_CHARS = 4000;
+
         private SpVoice speech;
 
         public Form1()
@@ -62,7 +67,8 @@ namespace ClipReader
         {
             if (!nowClose)
             {
-                Form1.ActiveForm.WindowState = FormWindowState.Minimized;
+                if (Form1.ActiveForm != null)
+                    Form1.ActiveForm.WindowState = FormWindowState.Minimized;
                 e.Cancel = true;
             }
         }
@@ -83,18 +89,110 @@ namespace ClipReader
 
         private void timer1_Tick(object sender, EventArgs e)
         {
-            String newClipboardText = Clipboard.GetText();
-            if (clipboardText != newClipboardText)
+            try
             {
-                clipboardText = newClipboardText;
-                READ();
+                String newClipboardText = Clipboard.GetText();
+                if (clipboardText != newClipboardText)
+                {
+                    clipboardText = newClipboardText;
+                    READ();
+                }
+            }
+            catch (Exception ex)
+            {
+                // The clipboard can be briefly locked by the app that is copying;
+                // skip this tick and pick it up on the next one instead of crashing.
+                System.Diagnostics.Debug.WriteLine("ClipReader: clipboard read failed: " + ex.Message);
             }
         }
 
         private void READ()
         {
+            if (String.IsNullOrEmpty(clipboardText))
+                return;
+
             speech.Rate = speed;
-            speech.Speak(clipboardText, SpeechVoiceSpeakFlags.SVSFlagsAsync);
+
+            // Never let SAPI parse the text as XML markup. Without this flag SAPI
+            // tries to interpret '<', '>', '&' etc. as tags, and malformed markup
+            // (very common in copied text) makes it silently stop mid-sentence.
+            // SVSFlagsAsync queues each chunk behind the previous one, so the whole
+            // text is read continuously.
+            SpeechVoiceSpeakFlags flags =
+                SpeechVoiceSpeakFlags.SVSFlagsAsync |
+                SpeechVoiceSpeakFlags.SVSFIsNotXML;
+
+            List<String> chunks = SplitIntoChunks(clipboardText);
+
+            // New clipboard content interrupts whatever is still being read, so a
+            // long article can't block a new copy for minutes.
+            bool purgeBeforeSpeak = true;
+            foreach (String chunk in chunks)
+            {
+                SpeechVoiceSpeakFlags chunkFlags = flags;
+                if (purgeBeforeSpeak)
+                {
+                    chunkFlags |= SpeechVoiceSpeakFlags.SVSFPurgeBeforeSpeak;
+                    purgeBeforeSpeak = false;
+                }
+                speech.Speak(chunk, chunkFlags);
+            }
+        }
+
+        /// <summary>
+        /// Splits text into chunks of at most MAX_CHUNK_CHARS characters, breaking
+        /// on sentence/line boundaries when possible so speech sounds natural.
+        /// The original text is never altered - chunks are exact substrings.
+        /// </summary>
+        private static List<String> SplitIntoChunks(String text)
+        {
+            List<String> chunks = new List<String>();
+            if (String.IsNullOrEmpty(text))
+                return chunks;
+            if (text.Length <= MAX_CHUNK_CHARS)
+            {
+                chunks.Add(text);
+                return chunks;
+            }
+
+            char[] boundaries = { '.', '!', '?', '。', '！', '？', '\n', '\r', ';', '；' };
+
+            int start = 0;
+            while (start < text.Length)
+            {
+                int remaining = text.Length - start;
+                if (remaining <= MAX_CHUNK_CHARS)
+                {
+                    chunks.Add(text.Substring(start));
+                    break;
+                }
+
+                // Find the last boundary character inside the window, so the chunk
+                // ends at a natural pause point.
+                int windowEnd = start + MAX_CHUNK_CHARS;
+                int cut = -1;
+                for (int i = windowEnd; i > start; i--)
+                {
+                    char c = text[i - 1];
+                    if (Array.IndexOf(boundaries, c) >= 0)
+                    {
+                        cut = i;
+                        break;
+                    }
+                }
+
+                // No boundary in the window: hard-break at the window edge.
+                if (cut < 0)
+                    cut = windowEnd;
+
+                chunks.Add(text.Substring(start, cut - start));
+
+                start = cut;
+                // Skip leading whitespace/newlines so the next chunk starts clean.
+                while (start < text.Length && Char.IsWhiteSpace(text[start]))
+                    start++;
+            }
+            return chunks;
         }
 
         private void button1_Click(object sender, EventArgs e)
@@ -125,6 +223,6 @@ namespace ClipReader
             speed = trackBar1.Value;
             speech.Rate = speed;
         }
-    }    
+    }
 
 }

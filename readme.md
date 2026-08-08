@@ -17,4 +17,19 @@ This application should work in every Windows operating system starting from Win
 
 History
 ---------
+v1.1 (2026-08-08) — Long text support (VaultedVentures fork)
+  * Removed the "stops after a few hundred characters" limitation.
+    - SAPI's Speak() is told explicitly that the text is NOT XML (SVSFIsNotXML),
+      so '<', '>', '&' etc. in copied text are read literally instead of being
+      parsed as markup and silently dropping the rest of the text.
+    - Long clipboard content is split into small chunks (max 4000 chars, cut at
+      sentence/line boundaries) and queued, so there is no length limit at all.
+  * New clipboard content interrupts whatever is currently being read (queue is
+    purged on new copy), so a long article can't block new copies for minutes.
+  * Clipboard polling is now crash-safe: a temporarily locked clipboard (e.g.
+    while another app is copying) is skipped and retried instead of killing the app.
+  * Build is reproducible: Interop.SpeechLib.dll is referenced from the repo
+    (bin\Release) instead of a machine-specific SDK path.
+
+v1.0 (2011) — Original release.
 I created this piece of software many years ago in just a few hours, but it's still a super useful tool for fast learning so I decided to share it with the world. 
